@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { SearchIcon, SlidersHorizontal, Star, StarOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,68 +12,120 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  DASHBOARD_STOCKS,
-  STOCK_SECTORS,
-  WATCHLIST_STORAGE_KEY,
-} from "@/lib/constants";
+import { DASHBOARD_STOCKS, STOCK_SECTORS } from "@/lib/constants";
+import { useWatchlist } from "@/hooks/useWatchlist";
+import { formatINRCurrency } from "@/lib/utils";
 
 type SortMode = "relevance" | "gainers" | "losers" | "market-cap";
+type SectorFilter = (typeof STOCK_SECTORS)[number];
+type SearchFilters = {
+  query: string;
+  sector: SectorFilter;
+  sortMode: SortMode;
+  watchlistOnly: boolean;
+};
 
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 2,
-  }).format(value);
+const DEFAULT_FILTERS: SearchFilters = {
+  query: "",
+  sector: "All",
+  sortMode: "relevance",
+  watchlistOnly: false,
+};
 
-const readStoredWatchlist = () => {
-  if (typeof window === "undefined") return [] as string[];
+const SORT_MODES: SortMode[] = ["relevance", "gainers", "losers", "market-cap"];
 
-  try {
-    const storedValue = window.localStorage.getItem(WATCHLIST_STORAGE_KEY);
-    if (!storedValue) return [];
+const isValidSectorFilter = (value: string | null): value is SectorFilter =>
+  !!value && STOCK_SECTORS.includes(value as SectorFilter);
 
-    const parsed = JSON.parse(storedValue) as string[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+const isValidSortMode = (value: string | null): value is SortMode =>
+  !!value && SORT_MODES.includes(value as SortMode);
+
+const getInitialFilters = (): SearchFilters => {
+  if (typeof window === "undefined") return DEFAULT_FILTERS;
+
+  const searchParams = new URLSearchParams(window.location.search);
+  const urlQuery = searchParams.get("q")?.trim() ?? "";
+  const urlSector = searchParams.get("sector");
+  const urlSortMode = searchParams.get("sort");
+
+  return {
+    query: urlQuery,
+    sector: isValidSectorFilter(urlSector) ? urlSector : "All",
+    sortMode: isValidSortMode(urlSortMode) ? urlSortMode : "relevance",
+    watchlistOnly: searchParams.get("watchlist") === "1",
+  };
 };
 
 const SearchPage = () => {
-  const [query, setQuery] = useState("");
-  const [sector, setSector] = useState<(typeof STOCK_SECTORS)[number]>("All");
-  const [sortMode, setSortMode] = useState<SortMode>("relevance");
-  const [watchlistSymbols, setWatchlistSymbols] = useState<string[]>(
-    readStoredWatchlist,
-  );
+  const [filters, setFilters] = useState<SearchFilters>(getInitialFilters);
+  const { watchlistSymbols, watchlistSet, toggleWatchlistSymbol } = useWatchlist();
 
-  const persistWatchlist = (nextValue: string[]) => {
-    setWatchlistSymbols(nextValue);
-    window.localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify(nextValue));
+  const { query, sector, sortMode, watchlistOnly } = filters;
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+
+    if (query.trim()) {
+      params.set("q", query.trim());
+    } else {
+      params.delete("q");
+    }
+
+    if (sector !== "All") {
+      params.set("sector", sector);
+    } else {
+      params.delete("sector");
+    }
+
+    if (sortMode !== "relevance") {
+      params.set("sort", sortMode);
+    } else {
+      params.delete("sort");
+    }
+
+    if (watchlistOnly) {
+      params.set("watchlist", "1");
+    } else {
+      params.delete("watchlist");
+    }
+
+    const queryString = params.toString();
+    const nextUrl = queryString
+      ? `${window.location.pathname}?${queryString}`
+      : window.location.pathname;
+
+    window.history.replaceState(null, "", nextUrl);
+  }, [query, sector, sortMode, watchlistOnly]);
+
+  const updateFilters = (updates: Partial<SearchFilters>) => {
+    setFilters((previousFilters) => ({
+      ...previousFilters,
+      ...updates,
+    }));
   };
 
-  const toggleWatchlist = (symbol: string) => {
-    const alreadyAdded = watchlistSymbols.includes(symbol);
-    const nextWatchlist = alreadyAdded
-      ? watchlistSymbols.filter((item) => item !== symbol)
-      : [...watchlistSymbols, symbol];
-
-    persistWatchlist(nextWatchlist);
+  const resetFilters = () => {
+    setFilters(DEFAULT_FILTERS);
   };
+
+  const hasActiveFilters =
+    query.length > 0 ||
+    sector !== "All" ||
+    sortMode !== "relevance" ||
+    watchlistOnly;
 
   const filteredStocks = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
     const matchingStocks = DASHBOARD_STOCKS.filter((stock) => {
       const sectorMatched = sector === "All" || stock.sector === sector;
+      const watchlistMatched = !watchlistOnly || watchlistSet.has(stock.symbol);
       const queryMatched =
         !normalizedQuery ||
         stock.symbol.toLowerCase().includes(normalizedQuery) ||
         stock.company.toLowerCase().includes(normalizedQuery);
 
-      return sectorMatched && queryMatched;
+      return sectorMatched && queryMatched && watchlistMatched;
     });
 
     if (sortMode === "gainers") {
@@ -97,18 +149,18 @@ const SearchPage = () => {
       const bStartsWith = b.symbol.toLowerCase().startsWith(normalizedQuery) ? 1 : 0;
       return bStartsWith - aStartsWith;
     });
-  }, [query, sector, sortMode]);
-
-  const watchlistSet = useMemo(
-    () => new Set(watchlistSymbols),
-    [watchlistSymbols],
-  );
+  }, [query, sector, sortMode, watchlistOnly, watchlistSet]);
 
   const averageMove = useMemo(() => {
     if (!filteredStocks.length) return 0;
     const total = filteredStocks.reduce((sum, stock) => sum + stock.changePercent, 0);
     return total / filteredStocks.length;
   }, [filteredStocks]);
+
+  const watchlistHits = useMemo(
+    () => filteredStocks.filter((stock) => watchlistSet.has(stock.symbol)).length,
+    [filteredStocks, watchlistSet],
+  );
 
   return (
     <div className="space-y-8 pb-8">
@@ -130,7 +182,7 @@ const SearchPage = () => {
             </p>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2 lg:w-[360px]">
+          <div className="grid gap-3 sm:grid-cols-3 lg:w-[540px]">
             <div className="rounded-xl border border-gray-700/60 bg-gray-800/60 p-4">
               <p className="text-xs uppercase tracking-[0.18em] text-gray-500">Results</p>
               <p className="mt-1 text-2xl font-semibold text-gray-100">{filteredStocks.length}</p>
@@ -146,6 +198,11 @@ const SearchPage = () => {
                 {averageMove.toFixed(2)}%
               </p>
             </div>
+            <div className="rounded-xl border border-gray-700/60 bg-gray-800/60 p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-gray-500">Saved Hits</p>
+              <p className="mt-1 text-2xl font-semibold text-gray-100">{watchlistHits}</p>
+              <p className="mt-1 text-xs text-gray-500">Matches in your watchlist</p>
+            </div>
           </div>
         </div>
       </section>
@@ -157,13 +214,16 @@ const SearchPage = () => {
             <SearchIcon className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-gray-500" />
             <Input
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => updateFilters({ query: event.target.value })}
               placeholder="Search by symbol or company"
               className="h-11 border-gray-700/70 bg-gray-800/70 pl-10 text-gray-100 placeholder:text-gray-500"
             />
           </label>
 
-          <Select value={sector} onValueChange={(value) => setSector(value as (typeof STOCK_SECTORS)[number])}>
+          <Select
+            value={sector}
+            onValueChange={(value) => updateFilters({ sector: value as SectorFilter })}
+          >
             <SelectTrigger className="h-11 w-full border-gray-700/70 bg-gray-800/70 text-gray-100">
               <SelectValue placeholder="Filter by sector" />
             </SelectTrigger>
@@ -176,7 +236,7 @@ const SearchPage = () => {
             </SelectContent>
           </Select>
 
-          <Select value={sortMode} onValueChange={(value) => setSortMode(value as SortMode)}>
+          <Select value={sortMode} onValueChange={(value) => updateFilters({ sortMode: value as SortMode })}>
             <SelectTrigger className="h-11 w-full border-gray-700/70 bg-gray-800/70 text-gray-100">
               <div className="flex items-center gap-2">
                 <SlidersHorizontal className="h-4 w-4 text-gray-400" />
@@ -190,6 +250,31 @@ const SearchPage = () => {
               <SelectItem value="market-cap">Largest Market Cap</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant={watchlistOnly ? "secondary" : "outline"}
+            onClick={() => updateFilters({ watchlistOnly: !watchlistOnly })}
+            className={`h-9 cursor-pointer border-gray-700 text-sm ${
+              watchlistOnly
+                ? "bg-teal-500/10 text-teal-300 hover:bg-teal-500/20"
+                : "bg-gray-800 text-gray-200 hover:bg-gray-700"
+            }`}
+          >
+            <Star className="mr-2 h-4 w-4" />
+            {watchlistOnly ? "Showing Saved Only" : "Saved Stocks Only"}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={resetFilters}
+            disabled={!hasActiveFilters}
+            className="h-9 cursor-pointer border-gray-700 bg-gray-800 text-gray-200 hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Reset Filters
+          </Button>
         </div>
       </section>
 
@@ -222,7 +307,7 @@ const SearchPage = () => {
                   <div className="rounded-xl bg-gray-800/70 p-3">
                     <p className="text-xs uppercase tracking-[0.16em] text-gray-500">Price</p>
                     <p className="mt-1 text-lg font-semibold text-gray-100">
-                      {formatCurrency(stock.price)}
+                      {formatINRCurrency(stock.price)}
                     </p>
                   </div>
                   <div className="rounded-xl bg-gray-800/70 p-3">
@@ -241,7 +326,7 @@ const SearchPage = () => {
 
                 <Button
                   type="button"
-                  onClick={() => toggleWatchlist(stock.symbol)}
+                  onClick={() => toggleWatchlistSymbol(stock.symbol)}
                   variant={isInWatchlist ? "secondary" : "outline"}
                   className={`mt-4 h-10 w-full cursor-pointer border-gray-700 text-sm font-medium ${
                     isInWatchlist

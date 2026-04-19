@@ -4,59 +4,30 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import TradingViewWidget from "@/components/TradingViewWidget";
-import {
-  DASHBOARD_STOCKS,
-  WATCHLIST_STORAGE_KEY,
-} from "@/lib/constants";
+import { DASHBOARD_STOCKS_BY_SYMBOL, type DashboardStock } from "@/lib/constants";
 import { Star, Trash2, TrendingUp } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useWatchlist } from "@/hooks/useWatchlist";
+import { formatINRCurrency } from "@/lib/utils";
 
 const scriptBase = "https://s3.tradingview.com/external-embedding/embed-widget-";
-
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 2,
-  }).format(value);
-
-const readStoredWatchlist = () => {
-  if (typeof window === "undefined") return [] as string[];
-
-  try {
-    const storedValue = window.localStorage.getItem(WATCHLIST_STORAGE_KEY);
-    if (!storedValue) return [];
-
-    const parsed = JSON.parse(storedValue) as string[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-};
+type WatchlistSortMode = "manual" | "gainers" | "losers" | "market-cap";
 
 const WatchlistPage = () => {
-  const [watchlistSymbols, setWatchlistSymbols] = useState<string[]>(
-    readStoredWatchlist,
-  );
-
-  const persistWatchlist = (nextValue: string[]) => {
-    setWatchlistSymbols(nextValue);
-    window.localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify(nextValue));
-  };
-
-  const removeFromWatchlist = (symbol: string) => {
-    const nextWatchlist = watchlistSymbols.filter((item) => item !== symbol);
-    persistWatchlist(nextWatchlist);
-  };
-
-  const clearWatchlist = () => {
-    persistWatchlist([]);
-  };
+  const [sortMode, setSortMode] = useState<WatchlistSortMode>("manual");
+  const { watchlistSymbols, removeWatchlistSymbol, clearWatchlist } = useWatchlist();
 
   const watchlistStocks = useMemo(
     () =>
       watchlistSymbols
-        .map((symbol) => DASHBOARD_STOCKS.find((stock) => stock.symbol === symbol))
-        .filter((stock): stock is (typeof DASHBOARD_STOCKS)[number] => !!stock),
+        .map((symbol) => DASHBOARD_STOCKS_BY_SYMBOL.get(symbol))
+        .filter((stock): stock is DashboardStock => !!stock),
     [watchlistSymbols],
   );
 
@@ -71,9 +42,41 @@ const WatchlistPage = () => {
     return `${total.toFixed(2)}T`;
   }, [watchlistStocks]);
 
+  const bestPerformer = useMemo(() => {
+    if (!watchlistStocks.length) return null;
+
+    return watchlistStocks.reduce((winner, stock) =>
+      stock.changePercent > winner.changePercent ? stock : winner,
+    );
+  }, [watchlistStocks]);
+
+  const worstPerformer = useMemo(() => {
+    if (!watchlistStocks.length) return null;
+
+    return watchlistStocks.reduce((loser, stock) =>
+      stock.changePercent < loser.changePercent ? stock : loser,
+    );
+  }, [watchlistStocks]);
+
+  const displayedWatchlistStocks = useMemo(() => {
+    if (sortMode === "gainers") {
+      return [...watchlistStocks].sort((a, b) => b.changePercent - a.changePercent);
+    }
+
+    if (sortMode === "losers") {
+      return [...watchlistStocks].sort((a, b) => a.changePercent - b.changePercent);
+    }
+
+    if (sortMode === "market-cap") {
+      return [...watchlistStocks].sort((a, b) => b.marketCapValue - a.marketCapValue);
+    }
+
+    return watchlistStocks;
+  }, [watchlistStocks, sortMode]);
+
   const tickerTapeConfig = useMemo(
     () => ({
-      symbols: watchlistStocks.slice(0, 12).map((stock) => ({
+      symbols: displayedWatchlistStocks.slice(0, 12).map((stock) => ({
         proName: stock.tradingViewSymbol,
         title: stock.symbol,
       })),
@@ -83,7 +86,7 @@ const WatchlistPage = () => {
       colorTheme: "dark",
       locale: "en",
     }),
-    [watchlistStocks],
+    [displayedWatchlistStocks],
   );
 
   return (
@@ -104,7 +107,7 @@ const WatchlistPage = () => {
             </p>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-3 lg:w-[460px]">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5 lg:w-[780px]">
             <div className="rounded-xl border border-gray-700/60 bg-gray-800/60 p-4">
               <p className="text-xs uppercase tracking-[0.18em] text-gray-500">Holdings</p>
               <p className="mt-1 text-2xl font-semibold text-gray-100">{watchlistStocks.length}</p>
@@ -122,6 +125,24 @@ const WatchlistPage = () => {
               >
                 {averageMove >= 0 ? "+" : ""}
                 {averageMove.toFixed(2)}%
+              </p>
+            </div>
+            <div className="rounded-xl border border-gray-700/60 bg-gray-800/60 p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-gray-500">Top Gainer</p>
+              <p className="mt-1 text-xl font-semibold text-teal-400">
+                {bestPerformer ? `${bestPerformer.symbol}` : "-"}
+              </p>
+              <p className="mt-1 text-xs text-teal-400">
+                {bestPerformer ? `+${bestPerformer.changePercent.toFixed(2)}%` : "--"}
+              </p>
+            </div>
+            <div className="rounded-xl border border-gray-700/60 bg-gray-800/60 p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-gray-500">Top Loser</p>
+              <p className="mt-1 text-xl font-semibold text-red-400">
+                {worstPerformer ? `${worstPerformer.symbol}` : "-"}
+              </p>
+              <p className="mt-1 text-xs text-red-400">
+                {worstPerformer ? `${worstPerformer.changePercent.toFixed(2)}%` : "--"}
               </p>
             </div>
           </div>
@@ -142,6 +163,17 @@ const WatchlistPage = () => {
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <h2 className="text-xl font-semibold text-gray-100">Tracked Stocks</h2>
               <div className="flex items-center gap-2">
+                <Select value={sortMode} onValueChange={(value) => setSortMode(value as WatchlistSortMode)}>
+                  <SelectTrigger className="h-9 w-[180px] border-gray-700 bg-gray-800 text-gray-100">
+                    <SelectValue placeholder="Sort watchlist" />
+                  </SelectTrigger>
+                  <SelectContent className="border-gray-700 bg-gray-800 text-gray-100">
+                    <SelectItem value="manual">Saved Order</SelectItem>
+                    <SelectItem value="gainers">Top Gainers</SelectItem>
+                    <SelectItem value="losers">Top Losers</SelectItem>
+                    <SelectItem value="market-cap">Largest Market Cap</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Link href="/search">
                   <Button
                     variant="outline"
@@ -175,14 +207,14 @@ const WatchlistPage = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-700/40 bg-[#0d0d0d]">
-                  {watchlistStocks.map((stock) => {
+                  {displayedWatchlistStocks.map((stock) => {
                     const positive = stock.changePercent >= 0;
 
                     return (
                       <tr key={stock.symbol} className="text-sm text-gray-300 hover:bg-gray-800/40">
                         <td className="px-4 py-3 font-semibold text-gray-100">{stock.symbol}</td>
                         <td className="px-4 py-3">{stock.company}</td>
-                        <td className="px-4 py-3">{formatCurrency(stock.price)}</td>
+                        <td className="px-4 py-3">{formatINRCurrency(stock.price)}</td>
                         <td
                           className={`px-4 py-3 font-semibold ${
                             positive ? "text-teal-400" : "text-red-400"
@@ -195,7 +227,7 @@ const WatchlistPage = () => {
                         <td className="px-4 py-3">
                           <Button
                             type="button"
-                            onClick={() => removeFromWatchlist(stock.symbol)}
+                            onClick={() => removeWatchlistSymbol(stock.symbol)}
                             variant="ghost"
                             className="h-8 cursor-pointer px-2 text-gray-400 hover:bg-red-500/15 hover:text-red-300"
                           >

@@ -270,6 +270,13 @@ export const DASHBOARD_STOCKS: DashboardStock[] = [
   },
 ];
 
+export const DASHBOARD_STOCKS_BY_SYMBOL: ReadonlyMap<string, DashboardStock> =
+  new Map(DASHBOARD_STOCKS.map((stock) => [stock.symbol, stock] as const));
+
+export const DASHBOARD_STOCK_SYMBOLS_SET: ReadonlySet<string> = new Set(
+  DASHBOARD_STOCKS.map((stock) => stock.symbol),
+);
+
 // Sign-up form select options
 export const INVESTMENT_GOALS = [
   { value: "Growth", label: "Growth" },
@@ -362,6 +369,7 @@ export const MARKET_OVERVIEW_WIDGET_CONFIG = {
 };
 
 export const HEATMAP_WIDGET_CONFIG = {
+  colorTheme: "dark",
   dataSource: "SENSEX",
   market: "india",
   blockSize: "market_cap_basic",
@@ -370,7 +378,6 @@ export const HEATMAP_WIDGET_CONFIG = {
   isTransparent: true,
   locale: "en",
   symbolUrl: "",
-  colorTheme: "dark",
   exchanges: ["BSE", "NSE"],
   hasTopBar: false,
   isDataSetEnabled: false,
@@ -545,7 +552,7 @@ export const BASELINE_WIDGET_CONFIG = (symbol: string) => ({
 export const TECHNICAL_ANALYSIS_WIDGET_CONFIG = (symbol: string) => ({
   symbol: symbol.toUpperCase(),
   colorTheme: "dark",
-  isTransparent: "true",
+  isTransparent: true,
   locale: "en",
   width: "100%",
   height: 400,
@@ -556,7 +563,7 @@ export const TECHNICAL_ANALYSIS_WIDGET_CONFIG = (symbol: string) => ({
 export const COMPANY_PROFILE_WIDGET_CONFIG = (symbol: string) => ({
   symbol: symbol.toUpperCase(),
   colorTheme: "dark",
-  isTransparent: "true",
+  isTransparent: true,
   locale: "en",
   width: "100%",
   height: 440,
@@ -565,7 +572,7 @@ export const COMPANY_PROFILE_WIDGET_CONFIG = (symbol: string) => ({
 export const COMPANY_FINANCIALS_WIDGET_CONFIG = (symbol: string) => ({
   symbol: symbol.toUpperCase(),
   colorTheme: "dark",
-  isTransparent: "true",
+  isTransparent: true,
   locale: "en",
   width: "100%",
   height: 464,
