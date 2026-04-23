@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { DASHBOARD_STOCKS, STOCK_SECTORS } from "@/lib/constants";
+import { DASHBOARD_STOCKS, STOCK_SECTORS, DashboardStock } from "@/lib/constants";
 import { useWatchlist } from "@/hooks/useWatchlist";
 import { formatINRCurrency } from "@/lib/utils";
 
@@ -58,9 +58,21 @@ const getInitialFilters = (): SearchFilters => {
 
 const SearchPage = () => {
   const [filters, setFilters] = useState<SearchFilters>(getInitialFilters);
+  const [dashboardStocks, setDashboardStocks] = useState<DashboardStock[]>(DASHBOARD_STOCKS);
   const { watchlistSymbols, watchlistSet, toggleWatchlistSymbol } = useWatchlist();
 
   const { query, sector, sortMode, watchlistOnly } = filters;
+
+  useEffect(() => {
+    fetch("/api/stocks")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.data) {
+          setDashboardStocks(data.data);
+        }
+      })
+      .catch((err) => console.error("Error fetching live stocks:", err));
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -117,7 +129,7 @@ const SearchPage = () => {
   const filteredStocks = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
-    const matchingStocks = DASHBOARD_STOCKS.filter((stock) => {
+    const matchingStocks = dashboardStocks.filter((stock) => {
       const sectorMatched = sector === "All" || stock.sector === sector;
       const watchlistMatched = !watchlistOnly || watchlistSet.has(stock.symbol);
       const queryMatched =

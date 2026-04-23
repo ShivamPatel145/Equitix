@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import TradingViewWidget from "@/components/TradingViewWidget";
 import { DASHBOARD_STOCKS_BY_SYMBOL, type DashboardStock } from "@/lib/constants";
@@ -21,15 +21,28 @@ type WatchlistSortMode = "manual" | "gainers" | "losers" | "market-cap";
 
 const WatchlistPage = () => {
   const [sortMode, setSortMode] = useState<WatchlistSortMode>("manual");
+  const [dashboardStocks, setDashboardStocks] = useState<DashboardStock[]>([]);
   const { watchlistSymbols, removeWatchlistSymbol, clearWatchlist } = useWatchlist();
 
-  const watchlistStocks = useMemo(
-    () =>
-      watchlistSymbols
-        .map((symbol) => DASHBOARD_STOCKS_BY_SYMBOL.get(symbol))
-        .filter((stock): stock is DashboardStock => !!stock),
-    [watchlistSymbols],
-  );
+  useEffect(() => {
+    fetch("/api/stocks")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.data) {
+          setDashboardStocks(data.data);
+        }
+      })
+      .catch((err) => console.error("Error fetching live stocks:", err));
+  }, []);
+
+
+  const watchlistStocks = useMemo(() => {
+    if (!dashboardStocks.length) return [];
+    const stockMap = new Map(dashboardStocks.map(stock => [stock.symbol, stock]));
+    return watchlistSymbols
+      .map((symbol) => stockMap.get(symbol))
+      .filter((stock): stock is DashboardStock => !!stock);
+  }, [watchlistSymbols, dashboardStocks]);
 
   const averageMove = useMemo(() => {
     if (!watchlistStocks.length) return 0;

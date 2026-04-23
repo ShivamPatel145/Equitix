@@ -10,19 +10,22 @@ import {
   SCREENER_WIDGET_CONFIG,
 } from "@/lib/constants";
 import { ArrowRight, TrendingUp } from "lucide-react";
+import { fetchLiveStockData } from "@/lib/yahoo-finance";
 
-const Home = () => {
+const Home = async () => {
   const scriptUrl = `https://s3.tradingview.com/external-embedding/embed-widget-`;
 
+  const dashboardStocks = await fetchLiveStockData();
+
   const averageMove =
-    DASHBOARD_STOCKS.reduce((sum, stock) => sum + stock.changePercent, 0) /
-    DASHBOARD_STOCKS.length;
-  const gainers = DASHBOARD_STOCKS.filter((stock) => stock.changePercent >= 0).length;
-  const combinedMarketCap = DASHBOARD_STOCKS.reduce(
+    dashboardStocks.reduce((sum, stock) => sum + stock.changePercent, 0) /
+    dashboardStocks.length;
+  const gainers = dashboardStocks.filter((stock) => stock.changePercent >= 0).length;
+  const combinedMarketCap = dashboardStocks.reduce(
     (sum, stock) => sum + stock.marketCapValue,
     0,
   );
-  const topGainer = DASHBOARD_STOCKS.reduce((winner, stock) =>
+  const topGainer = dashboardStocks.reduce((winner, stock) =>
     stock.changePercent > winner.changePercent ? stock : winner,
   );
 
@@ -68,7 +71,7 @@ const Home = () => {
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-xl border border-gray-700/60 bg-gray-800/60 p-4">
               <p className="text-xs uppercase tracking-[0.18em] text-gray-500">Tracked</p>
-              <p className="mt-1 text-2xl font-semibold text-gray-100">{DASHBOARD_STOCKS.length}</p>
+              <p className="mt-1 text-2xl font-semibold text-gray-100">{dashboardStocks.length}</p>
               <p className="mt-1 text-xs text-gray-500">{gainers} gainers today</p>
             </div>
             <div className="rounded-xl border border-gray-700/60 bg-gray-800/60 p-4">
